@@ -1,0 +1,12 @@
+[submodule "seshat"]
+	path = seshat
+	url = git@github.com:shinaoka/seshat.git
+	branch = work/tokenizer-mode-switching
+[submodule "element-desktop"]
+	path = element-desktop
+	url = git@github.com:shinaoka/element-desktop.git
+	branch = shinaoka/ngram
+[submodule "element-web"]
+	path = element-web
+	url = git@github.com:shinaoka/element-web.git
+	branch = shinaoka/ngram
