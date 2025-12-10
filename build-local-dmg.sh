@@ -12,6 +12,36 @@ echo "Building Element Desktop DMG"
 echo "Architecture: $ARCH"
 echo "========================================"
 
+# 0. Check and install dependencies if needed
+echo ""
+echo "[0/5] Checking dependencies..."
+
+# Check if element-web dependencies need updating
+cd "$SCRIPT_DIR/element-web"
+if [ ! -d "node_modules" ]; then
+    echo "Installing element-web dependencies..."
+    yarn install
+elif [ "yarn.lock" -nt "node_modules/.yarn-integrity" ] 2>/dev/null || [ "package.json" -nt "node_modules/.yarn-integrity" ] 2>/dev/null; then
+    echo "Updating element-web dependencies (yarn.lock or package.json changed)..."
+    yarn install --check-files
+else
+    echo "element-web dependencies are up to date"
+fi
+
+# Check if element-desktop dependencies need updating
+cd "$SCRIPT_DIR/element-desktop"
+if [ ! -d "node_modules" ]; then
+    echo "Installing element-desktop dependencies..."
+    yarn install
+elif [ "yarn.lock" -nt "node_modules/.yarn-integrity" ] 2>/dev/null || [ "package.json" -nt "node_modules/.yarn-integrity" ] 2>/dev/null; then
+    echo "Updating element-desktop dependencies (yarn.lock or package.json changed)..."
+    yarn install --check-files
+else
+    echo "element-desktop dependencies are up to date"
+fi
+
+echo "Dependencies OK"
+
 # 1. Build seshat-node with bundled sqlcipher (static linking)
 echo ""
 echo "[1/5] Building seshat-node with bundled-sqlcipher..."
@@ -43,6 +73,19 @@ echo "[3/5] Packaging webapp as ASAR..."
 cd "$SCRIPT_DIR/element-desktop"
 rm -rf webapp webapp.asar
 cp -r ../element-web/webapp ./
+
+# Add config.json if not present (required for default homeserver)
+if [ ! -f webapp/config.json ]; then
+    echo "Adding config.json to webapp..."
+    if [ -f ../element-web/config.json ]; then
+        cp ../element-web/config.json webapp/
+    elif [ -f ../element-web/config.sample.json ]; then
+        cp ../element-web/config.sample.json webapp/config.json
+    else
+        echo "WARNING: No config.json or config.sample.json found!"
+    fi
+fi
+
 npx asar pack webapp webapp.asar
 rm -rf webapp  # Clean up copied directory
 echo "Created: webapp.asar"
