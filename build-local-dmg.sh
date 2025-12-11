@@ -64,6 +64,31 @@ fi
 echo ""
 echo "[2/5] Building element-web..."
 cd "$SCRIPT_DIR/element-web"
+
+# Check if shared-components needs rebuild
+SHARED_COMPONENTS_DIR="packages/shared-components"
+SHARED_COMPONENTS_DIST="$SHARED_COMPONENTS_DIR/dist/element-web-shared-components.mjs"
+NEEDS_REBUILD=false
+
+if [ ! -f "$SHARED_COMPONENTS_DIST" ]; then
+    echo "shared-components: dist not found, rebuilding..."
+    NEEDS_REBUILD=true
+else
+    # Check if any source file is newer than dist
+    NEWEST_SRC=$(find "$SHARED_COMPONENTS_DIR/src" -type f -name "*.ts" -o -name "*.tsx" 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+    if [ -n "$NEWEST_SRC" ] && [ "$NEWEST_SRC" -nt "$SHARED_COMPONENTS_DIST" ]; then
+        echo "shared-components: source files changed, rebuilding..."
+        NEEDS_REBUILD=true
+    fi
+fi
+
+if [ "$NEEDS_REBUILD" = true ]; then
+    echo "Rebuilding shared-components..."
+    (cd "$SHARED_COMPONENTS_DIR" && yarn prepare)
+else
+    echo "shared-components: up to date"
+fi
+
 yarn build
 echo "Built: $SCRIPT_DIR/element-web/webapp"
 
