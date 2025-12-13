@@ -1,20 +1,60 @@
 #!/bin/bash
 # Build Element Desktop DMG with local seshat and element-web
-# Usage: ./build-local-dmg.sh [--arm64|--x64|--universal]
+# Usage: ./build-local-dmg.sh [--no-clean] [--arm64|--x64|--universal]
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ARCH="${1:---arm64}"  # Default to arm64
+CLEAN=true  # Default to clean build
+ARCH="--arm64"  # Default to arm64
+
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --no-clean)
+            CLEAN=false
+            ;;
+        --arm64|--x64|--universal)
+            ARCH="$arg"
+            ;;
+    esac
+done
 
 echo "========================================"
 echo "Building Element Desktop DMG"
 echo "Architecture: $ARCH"
+echo "Clean build: $CLEAN"
 echo "========================================"
 
-# 0. Check and install dependencies if needed
+# 0. Clean build artifacts if requested
+if [ "$CLEAN" = true ]; then
+    echo ""
+    echo "[0/6] Cleaning build artifacts..."
+    
+    # Clean element-web
+    echo "  Cleaning element-web..."
+    rm -rf "$SCRIPT_DIR/element-web/webapp"
+    rm -rf "$SCRIPT_DIR/element-web/lib"
+    rm -rf "$SCRIPT_DIR/element-web/packages/shared-components/dist"
+    
+    # Clean element-desktop
+    echo "  Cleaning element-desktop..."
+    rm -rf "$SCRIPT_DIR/element-desktop/dist"
+    rm -rf "$SCRIPT_DIR/element-desktop/lib"
+    rm -rf "$SCRIPT_DIR/element-desktop/webapp"
+    rm -rf "$SCRIPT_DIR/element-desktop/webapp.asar"
+    rm -rf "$SCRIPT_DIR/element-desktop/.hak"
+    
+    # Clean seshat
+    echo "  Cleaning seshat..."
+    rm -f "$SCRIPT_DIR/seshat/seshat-node/index.node"
+    
+    echo "  Clean complete"
+fi
+
+# 1. Check and install dependencies if needed
 echo ""
-echo "[0/5] Checking dependencies..."
+echo "[1/6] Checking dependencies..."
 
 # Check if element-web dependencies need updating
 cd "$SCRIPT_DIR/element-web"
@@ -42,9 +82,9 @@ fi
 
 echo "Dependencies OK"
 
-# 1. Build seshat-node with bundled sqlcipher (static linking)
+# 2. Build seshat-node with bundled sqlcipher (static linking)
 echo ""
-echo "[1/5] Building seshat-node with bundled-sqlcipher..."
+echo "[2/6] Building seshat-node with bundled-sqlcipher..."
 cd "$SCRIPT_DIR/seshat"
 # Build from workspace root with bundled-sqlcipher feature
 cargo build --release -p matrix-seshat --features bundled-sqlcipher
@@ -60,9 +100,9 @@ else
     echo "OK: No dynamic sqlcipher dependency"
 fi
 
-# 2. Build element-web
+# 3. Build shared-components and element-web
 echo ""
-echo "[2/5] Building element-web..."
+echo "[3/6] Building element-web..."
 cd "$SCRIPT_DIR/element-web"
 
 # Check if shared-components needs rebuild
@@ -75,7 +115,7 @@ if [ ! -f "$SHARED_COMPONENTS_DIST" ]; then
     NEEDS_REBUILD=true
 else
     # Check if any source file is newer than dist
-    NEWEST_SRC=$(find "$SHARED_COMPONENTS_DIR/src" -type f -name "*.ts" -o -name "*.tsx" 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+    NEWEST_SRC=$(find "$SHARED_COMPONENTS_DIR/src" -type f \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
     if [ -n "$NEWEST_SRC" ] && [ "$NEWEST_SRC" -nt "$SHARED_COMPONENTS_DIST" ]; then
         echo "shared-components: source files changed, rebuilding..."
         NEEDS_REBUILD=true
@@ -92,9 +132,9 @@ fi
 yarn build
 echo "Built: $SCRIPT_DIR/element-web/webapp"
 
-# 3. Package webapp as ASAR
+# 4. Package webapp as ASAR
 echo ""
-echo "[3/5] Packaging webapp as ASAR..."
+echo "[4/6] Packaging webapp as ASAR..."
 cd "$SCRIPT_DIR/element-desktop"
 rm -rf webapp webapp.asar
 cp -r ../element-web/webapp ./
@@ -115,10 +155,10 @@ npx asar pack webapp webapp.asar
 rm -rf webapp  # Clean up copied directory
 echo "Created: webapp.asar"
 
-# 4. Install local seshat-node to .hak/hakModules (electron-builder uses this)
+# 5. Install local seshat-node to .hak/hakModules (electron-builder uses this)
 # NOTE: electron-builder only packages from .hak/hakModules, NOT node_modules!
 echo ""
-echo "[4/5] Installing local seshat-node to .hak/hakModules..."
+echo "[5/6] Installing local seshat-node to .hak/hakModules..."
 
 # Create hakModules directory structure
 HAK_SESHAT_DIR=".hak/hakModules/matrix-seshat"
@@ -139,9 +179,9 @@ cp -r "$HAK_SESHAT_DIR" node_modules/matrix-seshat
 
 echo "Installed seshat-node"
 
-# 5. Build TypeScript and resources
+# 6. Build TypeScript and resources, then DMG
 echo ""
-echo "[5/5] Building DMG..."
+echo "[6/6] Building DMG..."
 yarn run build:ts
 yarn run build:res
 
