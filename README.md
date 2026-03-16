@@ -6,7 +6,8 @@ Development environment for building Element Desktop with custom seshat (n-gram 
 
 ```
 Element-dev/
-├── build-local-dmg.sh    # Build script
+├── build-local-dmg.sh    # Build script (macOS)
+├── build-local-exe.ps1   # Build script (Windows)
 ├── element-web/          # Submodule (shinaoka/ngram branch)
 ├── element-desktop/      # Submodule (shinaoka/ngram branch)
 └── seshat/               # Submodule (work/tokenizer-mode-switching branch)
@@ -27,7 +28,7 @@ cd element-desktop && yarn install && cd ..
 cd seshat/seshat-node && yarn install && cd ../..
 ```
 
-## Build DMG
+## Build DMG (macOS)
 
 ```bash
 # Build arm64 DMG (default)
@@ -42,6 +43,26 @@ rustup target add x86_64-apple-darwin
 ```
 
 Output: `element-desktop/dist/Element-*.dmg`
+
+## Build exe (Windows)
+
+Prerequisites: [element-desktop/docs/windows-requirements.md](element-desktop/docs/windows-requirements.md)  
+(Git, Node, Python, Rust, Visual Studio Build Tools, etc.)
+
+```powershell
+# Build exe (default architecture)
+.\build-local-exe.ps1
+
+# Build x64 exe explicitly
+.\build-local-exe.ps1 -x64
+
+# Skip clean (faster incremental build)
+.\build-local-exe.ps1 -NoClean
+```
+
+Output: `element-desktop/dist/`  
+- `Element Setup X.X.X.exe` (Squirrel installer)  
+- `win-unpacked/Element.exe` (portable)
 
 ## Features
 
