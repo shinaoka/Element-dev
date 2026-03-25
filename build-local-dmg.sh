@@ -1,12 +1,53 @@
 #!/bin/bash
 # Build Element Desktop DMG with local seshat and element-web
 # Usage: ./build-local-dmg.sh [--no-clean] [--arm64|--x64|--universal]
+#
+# Requires: Node.js v24 (v25+ has ESM/CJS compatibility issues with dependencies)
+#   nodebrew install v24.14.0 && nodebrew use v24.14.0
+#   export PATH="$HOME/.nodebrew/current/bin:$PATH"
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLEAN=true  # Default to clean build
 ARCH="--arm64"  # Default to arm64
+
+ensure_icns_icon() {
+    local build_dir="$1"
+    local icon_png="$build_dir/icon.png"
+    local icon_icns="$build_dir/icon.icns"
+    local temp_dir
+    local iconset_dir
+
+    if [ -f "$icon_icns" ]; then
+        echo "$icon_icns"
+        return 0
+    fi
+
+    if [ ! -f "$icon_png" ]; then
+        echo "ERROR: Missing macOS icon source: $icon_png" >&2
+        return 1
+    fi
+
+    temp_dir="$(mktemp -d)"
+    iconset_dir="$temp_dir/icon.iconset"
+    mkdir -p "$iconset_dir"
+
+    sips -z 16 16 "$icon_png" --out "$iconset_dir/icon_16x16.png" >/dev/null
+    sips -z 32 32 "$icon_png" --out "$iconset_dir/icon_16x16@2x.png" >/dev/null
+    sips -z 32 32 "$icon_png" --out "$iconset_dir/icon_32x32.png" >/dev/null
+    sips -z 64 64 "$icon_png" --out "$iconset_dir/icon_32x32@2x.png" >/dev/null
+    sips -z 128 128 "$icon_png" --out "$iconset_dir/icon_128x128.png" >/dev/null
+    sips -z 256 256 "$icon_png" --out "$iconset_dir/icon_128x128@2x.png" >/dev/null
+    sips -z 256 256 "$icon_png" --out "$iconset_dir/icon_256x256.png" >/dev/null
+    sips -z 512 512 "$icon_png" --out "$iconset_dir/icon_256x256@2x.png" >/dev/null
+    sips -z 512 512 "$icon_png" --out "$iconset_dir/icon_512x512.png" >/dev/null
+    sips -z 1024 1024 "$icon_png" --out "$iconset_dir/icon_512x512@2x.png" >/dev/null
+
+    iconutil -c icns "$iconset_dir" -o "$icon_icns"
+    rm -rf "$temp_dir"
+    echo "$icon_icns"
+}
 
 # Parse arguments
 for arg in "$@"; do
@@ -31,10 +72,10 @@ if [ "$CLEAN" = true ]; then
     echo ""
     echo "[0/6] Cleaning build artifacts..."
     
-    # Clean element-web
+    # Clean element-web (pnpm monorepo)
     echo "  Cleaning element-web..."
-    rm -rf "$SCRIPT_DIR/element-web/webapp"
-    rm -rf "$SCRIPT_DIR/element-web/lib"
+    rm -rf "$SCRIPT_DIR/element-web/apps/web/webapp"
+    rm -rf "$SCRIPT_DIR/element-web/apps/web/lib"
     rm -rf "$SCRIPT_DIR/element-web/packages/shared-components/dist"
     
     # Clean element-desktop
@@ -56,14 +97,14 @@ fi
 echo ""
 echo "[1/6] Checking dependencies..."
 
-# Check if element-web dependencies need updating
+# Check if element-web dependencies need updating (pnpm monorepo)
 cd "$SCRIPT_DIR/element-web"
 if [ ! -d "node_modules" ]; then
     echo "Installing element-web dependencies..."
-    yarn install
-elif [ "yarn.lock" -nt "node_modules/.yarn-integrity" ] 2>/dev/null || [ "package.json" -nt "node_modules/.yarn-integrity" ] 2>/dev/null; then
-    echo "Updating element-web dependencies (yarn.lock or package.json changed)..."
-    yarn install --check-files
+    pnpm install
+elif [ "pnpm-lock.yaml" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null || [ "package.json" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null; then
+    echo "Updating element-web dependencies (pnpm-lock.yaml or package.json changed)..."
+    pnpm install
 else
     echo "element-web dependencies are up to date"
 fi
@@ -72,10 +113,10 @@ fi
 cd "$SCRIPT_DIR/element-desktop"
 if [ ! -d "node_modules" ]; then
     echo "Installing element-desktop dependencies..."
-    yarn install
-elif [ "yarn.lock" -nt "node_modules/.yarn-integrity" ] 2>/dev/null || [ "package.json" -nt "node_modules/.yarn-integrity" ] 2>/dev/null; then
-    echo "Updating element-desktop dependencies (yarn.lock or package.json changed)..."
-    yarn install --check-files
+    pnpm install
+elif [ "pnpm-lock.yaml" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null || [ "package.json" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null; then
+    echo "Updating element-desktop dependencies (pnpm-lock.yaml or package.json changed)..."
+    pnpm install
 else
     echo "element-desktop dependencies are up to date"
 fi
@@ -100,52 +141,29 @@ else
     echo "OK: No dynamic sqlcipher dependency"
 fi
 
-# 3. Build shared-components and element-web
+# 3. Build element-web (pnpm monorepo with nx)
 echo ""
 echo "[3/6] Building element-web..."
 cd "$SCRIPT_DIR/element-web"
 
-# Check if shared-components needs rebuild
-SHARED_COMPONENTS_DIR="packages/shared-components"
-SHARED_COMPONENTS_DIST="$SHARED_COMPONENTS_DIR/dist/element-web-shared-components.mjs"
-NEEDS_REBUILD=false
-
-if [ ! -f "$SHARED_COMPONENTS_DIST" ]; then
-    echo "shared-components: dist not found, rebuilding..."
-    NEEDS_REBUILD=true
-else
-    # Check if any source file is newer than dist
-    NEWEST_SRC=$(find "$SHARED_COMPONENTS_DIR/src" -type f \( -name "*.ts" -o -name "*.tsx" \) 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
-    if [ -n "$NEWEST_SRC" ] && [ "$NEWEST_SRC" -nt "$SHARED_COMPONENTS_DIST" ]; then
-        echo "shared-components: source files changed, rebuilding..."
-        NEEDS_REBUILD=true
-    fi
-fi
-
-if [ "$NEEDS_REBUILD" = true ]; then
-    echo "Rebuilding shared-components..."
-    (cd "$SHARED_COMPONENTS_DIR" && yarn prepare)
-else
-    echo "shared-components: up to date"
-fi
-
-yarn build
-echo "Built: $SCRIPT_DIR/element-web/webapp"
+# Build via pnpm (nx handles shared-components and other dependencies)
+pnpm --filter element-web build
+echo "Built: $SCRIPT_DIR/element-web/apps/web/webapp"
 
 # 4. Package webapp as ASAR
 echo ""
 echo "[4/6] Packaging webapp as ASAR..."
 cd "$SCRIPT_DIR/element-desktop"
 rm -rf webapp webapp.asar
-cp -r ../element-web/webapp ./
+cp -r ../element-web/apps/web/webapp ./
 
 # Add config.json if not present (required for default homeserver)
 if [ ! -f webapp/config.json ]; then
     echo "Adding config.json to webapp..."
-    if [ -f ../element-web/config.json ]; then
-        cp ../element-web/config.json webapp/
-    elif [ -f ../element-web/config.sample.json ]; then
-        cp ../element-web/config.sample.json webapp/config.json
+    if [ -f ../element-web/apps/web/config.json ]; then
+        cp ../element-web/apps/web/config.json webapp/
+    elif [ -f ../element-web/apps/web/config.sample.json ]; then
+        cp ../element-web/apps/web/config.sample.json webapp/config.json
     else
         echo "WARNING: No config.json or config.sample.json found!"
     fi
@@ -182,12 +200,23 @@ echo "Installed seshat-node"
 # 6. Build TypeScript and resources, then DMG
 echo ""
 echo "[6/6] Building DMG..."
-yarn run build:ts
-yarn run build:res
+pnpm run build:ts
+pnpm run build:res
+
+ELECTRON_BUILDER_ARGS=("$ARCH" "--mac" "dmg" "-c.npmRebuild=false")
+
+# Fallback to a generated .icns file when actool cannot initialize.
+# This avoids local Xcode first-launch issues while preserving the default
+# .icon-based config when actool is healthy.
+if ! (actool --version >/dev/null 2>&1) >/dev/null 2>&1; then
+    echo "actool is unavailable, generating build/icon.icns fallback..."
+    ICON_ICNS="$(ensure_icns_icon "$SCRIPT_DIR/element-desktop/build")"
+    ELECTRON_BUILDER_ARGS+=("-c.mac.icon=$ICON_ICNS" "-c.dmg.badgeIcon=$ICON_ICNS")
+fi
 
 # Build DMG (skip rebuild to use our local seshat-node with bundled sqlcipher)
 # Disable npm rebuild to prevent overwriting our index.node
-npx electron-builder $ARCH --mac dmg -c.npmRebuild=false || true  # Ignore GH_TOKEN error
+npx electron-builder "${ELECTRON_BUILDER_ARGS[@]}" || true  # Ignore GH_TOKEN error
 
 echo ""
 echo "========================================"
