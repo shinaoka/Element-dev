@@ -1,0 +1,106 @@
+# CI/CD for the monorepo Windows desktop build (same pipeline as build-local-exe.ps1).
+#
+# Prerequisites on the runner match element-desktop/docs/windows-requirements.md:
+# Rust, NASM, Tcl, MSVC (via ilammy/msvc-dev-cmd), plus Node/Yarn and Python for node-gyp.
+#
+# Private git submodules: this workflow rewrites git@github.com SSH URLs to HTTPS and uses
+# GITHUB_TOKEN. If submodules are outside the token's scope, add repository secret SUBMODULES_TOKEN (PAT).
+
+name: Build Windows desktop
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [main, master, develop]
+    pull_request:
+        branches: [main, master, develop]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    # Skip code signing on CI (no Apple/Windows cert); avoids electron-builder signing failures.
+    CSC_IDENTITY_AUTO_DISCOVERY: false
+
+jobs:
+    build:
+        name: Windows x64 (local element-web + seshat)
+        runs-on: windows-latest
+        timeout-minutes: 120
+        defaults:
+            run:
+                shell: pwsh
+
+        steps:
+            - name: Checkout (no submodules yet)
+              uses: actions/checkout@v4
+              with:
+                  submodules: false
+
+            - name: Init submodules (SSH URL -> HTTPS + token for private repos)
+              env:
+                  TOKEN: ${{ secrets.SUBMODULES_TOKEN || secrets.GITHUB_TOKEN }}
+              run: |
+                  git config --global url."https://github.com/".insteadOf "git@github.com:"
+                  git config --global url."https://x-access-token:${env:TOKEN}@github.com/".insteadOf "https://github.com/"
+                  git submodule sync --recursive
+                  git submodule update --init --force --recursive
+
+            - name: Install Chocolatey packages (NASM, Tcl, Perl)
+              run: |
+                  choco install -y nasm magicsplat-tcl-tk strawberryperl --no-progress
+                  echo "C:/Program Files/NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  echo "$env:HOME/AppData/Local/Apps/Tcl86/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  echo "C:/Strawberry/perl/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+            - name: Install Rust
+              env:
+                  CARGO_INCREMENTAL: 0
+              run: |
+                  rustup toolchain install stable --profile minimal --no-self-update
+                  rustup default stable
+                  rustup target add x86_64-pc-windows-msvc
+
+            - name: Use Node (element-desktop)
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: element-desktop/.node-version
+                  cache: yarn
+                  cache-dependency-path: |
+                      element-web/yarn.lock
+                      element-desktop/yarn.lock
+
+            - name: Enable Corepack (Yarn)
+              run: corepack enable
+
+            - name: Yarn network timeout
+              run: yarn config set network-timeout 300000
+
+            - name: Set up Python (node-gyp)
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: MSVC environment (C++ build tools for seshat / native deps)
+              uses: ilammy/msvc-dev-cmd@v1
+              with:
+                  arch: x64
+
+            - name: Build (build-local-exe.ps1)
+              working-directory: ${{ github.workspace }}
+              run: |
+                  Set-StrictMode -Version Latest
+                  $ErrorActionPreference = 'Stop'
+                  ./build-local-exe.ps1 -x64
+
+            - name: Upload installer artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: element-desktop-windows-dist
+                  path: element-desktop/dist
+                  if-no-files-found: error
+                  retention-days: 14
