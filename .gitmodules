@@ -6,3 +6,6 @@
 	path = element-web
 	url = git@github.com:shinaoka/element-web.git
 	branch = shinaoka/ngram
+[submodule "seshat"]
+	path = seshat
+	url = git@github.com:shinaoka/seshat.git
