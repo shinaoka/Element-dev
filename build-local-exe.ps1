@@ -61,6 +61,13 @@ if (-not (Test-Path "node_modules")) {
     Write-Host "element-desktop dependencies OK"
 }
 
+Set-Location "$ScriptDir\seshat\seshat-node"
+if (-not (Test-Path "node_modules")) {
+    yarn install
+} else {
+    Write-Host "seshat-node dependencies OK"
+}
+
 # 2. Build seshat-node with bundled sqlcipher
 Write-Host ""
 Write-Host "[2/6] Building seshat-node with bundled-sqlcipher..."

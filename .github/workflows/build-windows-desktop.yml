@@ -73,6 +73,7 @@ jobs:
                   cache-dependency-path: |
                       element-web/yarn.lock
                       element-desktop/yarn.lock
+                      seshat/seshat-node/yarn.lock
 
             - name: Enable Corepack (Yarn)
               run: corepack enable
