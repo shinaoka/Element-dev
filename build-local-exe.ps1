@@ -2,7 +2,8 @@
 # Usage: .\build-local-exe.ps1 [-NoClean] [-x64]
 #
 # Prerequisites: Git, Node, Python, Rust, Visual Studio Build Tools (see element-desktop/docs/windows-requirements.md)
-
+# Requires: Node.js v24 (v25+ has ESM/CJS compatibility issues with dependencies)
+#
 param(
     [switch]$NoClean,
     [switch]$x64
@@ -11,6 +12,38 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Clean = -not $NoClean
+
+function Test-PnpmWorkspaceNeedsInstall {
+    param([string]$ProjectRoot)
+    $prev = Get-Location
+    try {
+        Set-Location $ProjectRoot
+        if (-not (Test-Path "node_modules")) {
+            return $true
+        }
+        $lockMarker = "node_modules\.pnpm\lock.yaml"
+        if (-not (Test-Path $lockMarker)) {
+            return $true
+        }
+        $lockYaml = Get-Item $lockMarker
+        if (Test-Path "pnpm-lock.yaml") {
+            $pnpmLock = Get-Item "pnpm-lock.yaml"
+            if ($pnpmLock.LastWriteTime -gt $lockYaml.LastWriteTime) {
+                return $true
+            }
+        }
+        if (Test-Path "package.json") {
+            $pkgJson = Get-Item "package.json"
+            if ($pkgJson.LastWriteTime -gt $lockYaml.LastWriteTime) {
+                return $true
+            }
+        }
+        return $false
+    }
+    finally {
+        Set-Location $prev
+    }
+}
 
 Write-Host "========================================"
 Write-Host "Building Element Desktop for Windows"
@@ -23,10 +56,10 @@ if ($Clean) {
     Write-Host ""
     Write-Host "[0/6] Cleaning build artifacts..."
 
-    # Clean element-web
+    # Clean element-web (pnpm monorepo)
     Write-Host "  Cleaning element-web..."
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\webapp"
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\lib"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\apps\web\webapp"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\apps\web\lib"
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\packages\shared-components\dist"
 
     # Clean element-desktop
@@ -47,18 +80,31 @@ if ($Clean) {
 # 1. Check dependencies
 Write-Host ""
 Write-Host "[1/6] Checking dependencies..."
+
 Set-Location "$ScriptDir\element-web"
-if (-not (Test-Path "node_modules")) {
-    yarn install
-} else {
-    Write-Host "element-web dependencies OK"
+if (Test-PnpmWorkspaceNeedsInstall -ProjectRoot "$ScriptDir\element-web") {
+    Write-Host "Installing or updating element-web dependencies (pnpm monorepo)..."
+    pnpm install
+}
+else {
+    Write-Host "element-web dependencies are up to date"
 }
 
 Set-Location "$ScriptDir\element-desktop"
+if (Test-PnpmWorkspaceNeedsInstall -ProjectRoot "$ScriptDir\element-desktop") {
+    Write-Host "Installing or updating element-desktop dependencies..."
+    pnpm install
+}
+else {
+    Write-Host "element-desktop dependencies are up to date"
+}
+
+Set-Location "$ScriptDir\seshat\seshat-node"
 if (-not (Test-Path "node_modules")) {
     yarn install
-} else {
-    Write-Host "element-desktop dependencies OK"
+}
+else {
+    Write-Host "seshat-node dependencies OK"
 }
 
 # 2. Build seshat-node with bundled sqlcipher
@@ -72,21 +118,14 @@ if (-not (Test-Path $SESHAT_INDEX_NODE)) {
 }
 Write-Host "Built: $SESHAT_INDEX_NODE"
 
-# 3. Build shared-components and element-web
+# 3. Build element-web (pnpm monorepo with nx)
 Write-Host ""
 Write-Host "[3/6] Building element-web..."
 Set-Location "$ScriptDir\element-web"
 
-$SHARED_COMPONENTS_DIST = "packages\shared-components\dist\element-web-shared-components.mjs"
-if (-not (Test-Path $SHARED_COMPONENTS_DIST)) {
-    Write-Host "Rebuilding shared-components..."
-    Set-Location "packages\shared-components"
-    yarn prepare
-    Set-Location "$ScriptDir\element-web"
-}
-
-yarn build
-Write-Host "Built: $ScriptDir\element-web\webapp"
+# Build via pnpm (nx handles shared-components and other dependencies)
+pnpm --filter element-web build
+Write-Host "Built: $ScriptDir\element-web\apps\web\webapp"
 
 # 4. Package webapp as ASAR
 Write-Host ""
@@ -94,15 +133,15 @@ Write-Host "[4/6] Packaging webapp as ASAR..."
 Set-Location "$ScriptDir\element-desktop"
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "webapp"
 Remove-Item -Force -ErrorAction SilentlyContinue "webapp.asar"
-Copy-Item -Recurse "$ScriptDir\element-web\webapp" "webapp"
+Copy-Item -Recurse "$ScriptDir\element-web\apps\web\webapp" "webapp"
 
 # Add config.json if not present
 if (-not (Test-Path "webapp\config.json")) {
     Write-Host "Adding config.json to webapp..."
-    if (Test-Path "..\element-web\config.json") {
-        Copy-Item "..\element-web\config.json" "webapp\"
-    } elseif (Test-Path "..\element-web\config.sample.json") {
-        Copy-Item "..\element-web\config.sample.json" "webapp\config.json"
+    if (Test-Path "..\element-web\apps\web\config.json") {
+        Copy-Item "..\element-web\apps\web\config.json" "webapp\"
+    } elseif (Test-Path "..\element-web\apps\web\config.sample.json") {
+        Copy-Item "..\element-web\apps\web\config.sample.json" "webapp\config.json"
     } else {
         Write-Host "WARNING: No config.json or config.sample.json found!"
     }
@@ -131,8 +170,8 @@ Write-Host "Installed seshat-node"
 # 6. Build TypeScript, resources, then exe
 Write-Host ""
 Write-Host "[6/6] Building Windows exe..."
-yarn run build:ts
-yarn run build:res
+pnpm run build:ts
+pnpm run build:res
 
 # Build Windows package (--x64 for 64-bit, omit for default)
 # squirrel = Element Setup.exe, msi = installer
