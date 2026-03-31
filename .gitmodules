@@ -2,11 +2,7 @@
 	path = seshat
 	url = git@github.com:shinaoka/seshat.git
 	branch = bump/v4.1.0
-[submodule "element-desktop"]
-	path = element-desktop
-	url = git@github.com:shinaoka/element-desktop.git
-	branch = shinaoka/ngram
 [submodule "element-web"]
 	path = element-web
 	url = git@github.com:shinaoka/element-web.git
-	branch = shinaoka/ngram_PR
+	branch = shinaoka/tokenizer-mode

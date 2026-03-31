@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Element Desktop DMG with local seshat and element-web
+# Build Element Desktop DMG with local seshat and element-web monorepo
 # Usage: ./build-local-dmg.sh [--no-clean] [--arm64|--x64|--universal]
 #
 # Requires: Node.js v24 (v25+ has ESM/CJS compatibility issues with dependencies)
@@ -11,6 +11,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLEAN=true  # Default to clean build
 ARCH="--arm64"  # Default to arm64
+
+# Monorepo paths
+ELEMENT_WEB_ROOT="$SCRIPT_DIR/element-web"
+DESKTOP_DIR="$ELEMENT_WEB_ROOT/apps/desktop"
+WEB_DIR="$ELEMENT_WEB_ROOT/apps/web"
 
 ensure_icns_icon() {
     local build_dir="$1"
@@ -62,7 +67,7 @@ for arg in "$@"; do
 done
 
 echo "========================================"
-echo "Building Element Desktop DMG"
+echo "Building Element Desktop DMG (monorepo)"
 echo "Architecture: $ARCH"
 echo "Clean build: $CLEAN"
 echo "========================================"
@@ -71,25 +76,24 @@ echo "========================================"
 if [ "$CLEAN" = true ]; then
     echo ""
     echo "[0/6] Cleaning build artifacts..."
-    
+
     # Clean element-web (pnpm monorepo)
     echo "  Cleaning element-web..."
-    rm -rf "$SCRIPT_DIR/element-web/apps/web/webapp"
-    rm -rf "$SCRIPT_DIR/element-web/apps/web/lib"
-    rm -rf "$SCRIPT_DIR/element-web/packages/shared-components/dist"
-    
-    # Clean element-desktop
+    rm -rf "$WEB_DIR/webapp"
+    rm -rf "$WEB_DIR/lib"
+
+    # Clean element-desktop (inside monorepo)
     echo "  Cleaning element-desktop..."
-    rm -rf "$SCRIPT_DIR/element-desktop/dist"
-    rm -rf "$SCRIPT_DIR/element-desktop/lib"
-    rm -rf "$SCRIPT_DIR/element-desktop/webapp"
-    rm -rf "$SCRIPT_DIR/element-desktop/webapp.asar"
-    rm -rf "$SCRIPT_DIR/element-desktop/.hak"
-    
+    rm -rf "$DESKTOP_DIR/dist"
+    rm -rf "$DESKTOP_DIR/lib"
+    rm -rf "$DESKTOP_DIR/webapp"
+    rm -rf "$DESKTOP_DIR/webapp.asar"
+    rm -rf "$DESKTOP_DIR/.hak"
+
     # Clean seshat
     echo "  Cleaning seshat..."
     rm -f "$SCRIPT_DIR/seshat/seshat-node/index.node"
-    
+
     echo "  Clean complete"
 fi
 
@@ -97,28 +101,16 @@ fi
 echo ""
 echo "[1/6] Checking dependencies..."
 
-# Check if element-web dependencies need updating (pnpm monorepo)
-cd "$SCRIPT_DIR/element-web"
+# Install monorepo dependencies from root
+cd "$ELEMENT_WEB_ROOT"
 if [ ! -d "node_modules" ]; then
-    echo "Installing element-web dependencies..."
+    echo "Installing monorepo dependencies..."
     pnpm install
 elif [ "pnpm-lock.yaml" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null || [ "package.json" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null; then
-    echo "Updating element-web dependencies (pnpm-lock.yaml or package.json changed)..."
+    echo "Updating monorepo dependencies (pnpm-lock.yaml or package.json changed)..."
     pnpm install
 else
-    echo "element-web dependencies are up to date"
-fi
-
-# Check if element-desktop dependencies need updating
-cd "$SCRIPT_DIR/element-desktop"
-if [ ! -d "node_modules" ]; then
-    echo "Installing element-desktop dependencies..."
-    pnpm install
-elif [ "pnpm-lock.yaml" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null || [ "package.json" -nt "node_modules/.pnpm/lock.yaml" ] 2>/dev/null; then
-    echo "Updating element-desktop dependencies (pnpm-lock.yaml or package.json changed)..."
-    pnpm install
-else
-    echo "element-desktop dependencies are up to date"
+    echo "Monorepo dependencies are up to date"
 fi
 
 echo "Dependencies OK"
@@ -141,29 +133,29 @@ else
     echo "OK: No dynamic sqlcipher dependency"
 fi
 
-# 3. Build element-web (pnpm monorepo with nx)
+# 3. Build element-web
 echo ""
 echo "[3/6] Building element-web..."
-cd "$SCRIPT_DIR/element-web"
+cd "$ELEMENT_WEB_ROOT"
 
 # Build via pnpm (nx handles shared-components and other dependencies)
 pnpm --filter element-web build
-echo "Built: $SCRIPT_DIR/element-web/apps/web/webapp"
+echo "Built: $WEB_DIR/webapp"
 
 # 4. Package webapp as ASAR
 echo ""
 echo "[4/6] Packaging webapp as ASAR..."
-cd "$SCRIPT_DIR/element-desktop"
+cd "$DESKTOP_DIR"
 rm -rf webapp webapp.asar
-cp -r ../element-web/apps/web/webapp ./
+cp -r "$WEB_DIR/webapp" ./
 
 # Add config.json if not present (required for default homeserver)
 if [ ! -f webapp/config.json ]; then
     echo "Adding config.json to webapp..."
-    if [ -f ../element-web/apps/web/config.json ]; then
-        cp ../element-web/apps/web/config.json webapp/
-    elif [ -f ../element-web/apps/web/config.sample.json ]; then
-        cp ../element-web/apps/web/config.sample.json webapp/config.json
+    if [ -f "$WEB_DIR/config.json" ]; then
+        cp "$WEB_DIR/config.json" webapp/
+    elif [ -f "$WEB_DIR/config.sample.json" ]; then
+        cp "$WEB_DIR/config.sample.json" webapp/config.json
     else
         echo "WARNING: No config.json or config.sample.json found!"
     fi
@@ -210,7 +202,7 @@ ELECTRON_BUILDER_ARGS=("$ARCH" "--mac" "dmg" "-c.npmRebuild=false")
 # .icon-based config when actool is healthy.
 if ! (actool --version >/dev/null 2>&1) >/dev/null 2>&1; then
     echo "actool is unavailable, generating build/icon.icns fallback..."
-    ICON_ICNS="$(ensure_icns_icon "$SCRIPT_DIR/element-desktop/build")"
+    ICON_ICNS="$(ensure_icns_icon "$DESKTOP_DIR/build")"
     ELECTRON_BUILDER_ARGS+=("-c.mac.icon=$ICON_ICNS" "-c.dmg.badgeIcon=$ICON_ICNS")
 fi
 
@@ -221,6 +213,6 @@ npx electron-builder "${ELECTRON_BUILDER_ARGS[@]}" || true  # Ignore GH_TOKEN er
 echo ""
 echo "========================================"
 echo "Build complete!"
-echo "DMG file: $SCRIPT_DIR/element-desktop/dist/"
-ls -la "$SCRIPT_DIR/element-desktop/dist/"*.dmg 2>/dev/null | tail -5
+echo "DMG file: $DESKTOP_DIR/dist/"
+ls -la "$DESKTOP_DIR/dist/"*.dmg 2>/dev/null | tail -5
 echo "========================================"
