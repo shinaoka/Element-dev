@@ -53,6 +53,22 @@ function Assert-LastExitCode {
     }
 }
 
+# png-to-ico lists @types/node in "dependencies" (types-only; should be devDependencies).
+# electron-builder 26+ manual node_modules traversal treats that as a production dep and fails
+# on pnpm layouts ("Production dependency @types/node not found for package png-to-ico").
+# scripts/electron-builder-fix-png-to-ico.js lives in Element-dev only so element-web stays unmodified.
+function Repair-PngToIcoPackageJsonForElectronBuilder {
+    param([string]$ElementWebRoot)
+    $fixScript = Join-Path $ScriptDir "scripts\electron-builder-fix-png-to-ico.js"
+    if (-not (Test-Path $fixScript)) {
+        throw "Missing $fixScript"
+    }
+    node $fixScript $ElementWebRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "electron-builder-fix-png-to-ico.js failed (exit code $LASTEXITCODE)"
+    }
+}
+
 Write-Host "========================================"
 Write-Host "Building Element Desktop for Windows"
 Write-Host "Architecture: $(if ($x64) { 'x64' } else { 'current' })"
@@ -191,6 +207,9 @@ pnpm run build:ts
 Assert-LastExitCode "pnpm run build:ts (element-desktop)"
 pnpm run build:res
 Assert-LastExitCode "pnpm run build:res (element-desktop)"
+
+Write-Host "  Applying electron-builder workaround for png-to-ico (see scripts/electron-builder-fix-png-to-ico.js)..."
+Repair-PngToIcoPackageJsonForElectronBuilder -ElementWebRoot "$ScriptDir\element-web"
 
 # Build Windows package (--x64 for 64-bit, omit for default)
 # squirrel = Element Setup.exe, msi = installer
