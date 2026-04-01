@@ -20,6 +20,7 @@ concurrency:
 
 permissions:
     contents: read
+    actions: write # rust-cache / setup-node pnpm cache save
 
 env:
     # Skip code signing on CI (no Apple/Windows cert); avoids electron-builder signing failures.
@@ -63,6 +64,22 @@ jobs:
                   rustup toolchain install stable --profile minimal --no-self-update
                   rustup default stable
                   rustup target add x86_64-pc-windows-msvc
+
+            # After rustup (cache key includes rustc version). Caches ~/.cargo/registry + seshat/target deps.
+            - name: Cache Rust (seshat workspace)
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: seshat
+                  # Also cache workspace libs (seshat + matrix-seshat); speeds repeat runs when lockfiles unchanged.
+                  cache-workspace-crates: "true"
+
+            - name: Cache seshat-node (Yarn)
+              uses: actions/cache@v4
+              with:
+                  path: seshat/seshat-node/node_modules
+                  key: ${{ runner.os }}-seshat-node-yarn-${{ hashFiles('seshat/seshat-node/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-seshat-node-yarn-
 
             - name: Install pnpm
               uses: pnpm/action-setup@v4
