@@ -1,7 +1,6 @@
 # CI/CD for the monorepo Windows desktop build (same pipeline as build-local-exe.ps1).
 #
-# Prerequisites on the runner match element-desktop/docs/windows-requirements.md:
-# Rust, NASM, Tcl, MSVC (via ilammy/msvc-dev-cmd), plus Node/Yarn and Python for node-gyp.
+# Prerequisites: Rust, NASM, Tcl, MSVC (ilammy/msvc-dev-cmd), Node (pnpm + Yarn for seshat), Python for node-gyp.
 #
 # Private git submodules: this workflow rewrites git@github.com SSH URLs to HTTPS and uses
 # GITHUB_TOKEN. If submodules are outside the token's scope, add repository secret SUBMODULES_TOKEN (PAT).
@@ -65,18 +64,20 @@ jobs:
                   rustup default stable
                   rustup target add x86_64-pc-windows-msvc
 
-            - name: Use Node (element-desktop)
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.32.1
+
+            - name: Use Node (element-web monorepo + desktop app)
               uses: actions/setup-node@v4
               with:
-                  node-version-file: element-desktop/.node-version
-                  cache: yarn
-                  cache-dependency-path: |
-                      element-web/yarn.lock
-                      element-desktop/yarn.lock
-                      seshat/seshat-node/yarn.lock
+                  node-version-file: element-web/apps/desktop/.node-version
+                  cache: pnpm
+                  cache-dependency-path: element-web/pnpm-lock.yaml
 
-            - name: Enable Corepack (Yarn)
-              run: corepack enable
+            - name: Install Yarn classic (seshat-node)
+              run: npm install -g yarn@1.22.22
 
             - name: Yarn network timeout
               run: yarn config set network-timeout 300000
@@ -102,6 +103,6 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: element-desktop-windows-dist
-                  path: element-desktop/dist
+                  path: element-web/apps/desktop/dist
                   if-no-files-found: error
                   retention-days: 14

@@ -1,7 +1,7 @@
 # Build Element Desktop exe with local seshat and element-web
 # Usage: .\build-local-exe.ps1 [-NoClean] [-x64]
 #
-# Prerequisites: Git, Node, Python, Rust, Visual Studio Build Tools (see element-desktop/docs/windows-requirements.md)
+# Prerequisites: Git, Node, Python, Rust, Visual Studio Build Tools (see element-web/apps/desktop native build docs)
 # Requires: Node.js v24 (v25+ has ESM/CJS compatibility issues with dependencies)
 #
 param(
@@ -11,6 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$DesktopDir = Join-Path $ScriptDir "element-web\apps\desktop"
 $Clean = -not $NoClean
 
 function Test-PnpmWorkspaceNeedsInstall {
@@ -62,13 +63,13 @@ if ($Clean) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\apps\web\lib"
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-web\packages\shared-components\dist"
 
-    # Clean element-desktop
-    Write-Host "  Cleaning element-desktop..."
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-desktop\dist"
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-desktop\lib"
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-desktop\webapp"
-    Remove-Item -Force -ErrorAction SilentlyContinue "$ScriptDir\element-desktop\webapp.asar"
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$ScriptDir\element-desktop\.hak"
+    # Clean element-desktop (pnpm package under element-web monorepo)
+    Write-Host "  Cleaning element-web/apps/desktop..."
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$DesktopDir\dist"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$DesktopDir\lib"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$DesktopDir\webapp"
+    Remove-Item -Force -ErrorAction SilentlyContinue "$DesktopDir\webapp.asar"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$DesktopDir\.hak"
 
     # Clean seshat
     Write-Host "  Cleaning seshat..."
@@ -90,14 +91,7 @@ else {
     Write-Host "element-web dependencies are up to date"
 }
 
-Set-Location "$ScriptDir\element-desktop"
-if (Test-PnpmWorkspaceNeedsInstall -ProjectRoot "$ScriptDir\element-desktop") {
-    Write-Host "Installing or updating element-desktop dependencies..."
-    pnpm install
-}
-else {
-    Write-Host "element-desktop dependencies are up to date"
-}
+# apps/desktop is part of the element-web pnpm workspace; root install covers it.
 
 Set-Location "$ScriptDir\seshat\seshat-node"
 if (-not (Test-Path "node_modules")) {
@@ -130,7 +124,7 @@ Write-Host "Built: $ScriptDir\element-web\apps\web\webapp"
 # 4. Package webapp as ASAR
 Write-Host ""
 Write-Host "[4/6] Packaging webapp as ASAR..."
-Set-Location "$ScriptDir\element-desktop"
+Set-Location $DesktopDir
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "webapp"
 Remove-Item -Force -ErrorAction SilentlyContinue "webapp.asar"
 Copy-Item -Recurse "$ScriptDir\element-web\apps\web\webapp" "webapp"
@@ -138,10 +132,10 @@ Copy-Item -Recurse "$ScriptDir\element-web\apps\web\webapp" "webapp"
 # Add config.json if not present
 if (-not (Test-Path "webapp\config.json")) {
     Write-Host "Adding config.json to webapp..."
-    if (Test-Path "..\element-web\apps\web\config.json") {
-        Copy-Item "..\element-web\apps\web\config.json" "webapp\"
-    } elseif (Test-Path "..\element-web\apps\web\config.sample.json") {
-        Copy-Item "..\element-web\apps\web\config.sample.json" "webapp\config.json"
+    if (Test-Path "..\web\config.json") {
+        Copy-Item "..\web\config.json" "webapp\"
+    } elseif (Test-Path "..\web\config.sample.json") {
+        Copy-Item "..\web\config.sample.json" "webapp\config.json"
     } else {
         Write-Host "WARNING: No config.json or config.sample.json found!"
     }
@@ -183,6 +177,6 @@ npx electron-builder @BuildArgs
 Write-Host ""
 Write-Host "========================================"
 Write-Host "Build complete!"
-Write-Host "Output: $ScriptDir\element-desktop\dist\"
-Get-ChildItem "$ScriptDir\element-desktop\dist" -ErrorAction SilentlyContinue | Format-Table Name, Length -AutoSize
+Write-Host "Output: $DesktopDir\dist\"
+Get-ChildItem "$DesktopDir\dist" -ErrorAction SilentlyContinue | Format-Table Name, Length -AutoSize
 Write-Host "========================================"
