@@ -46,6 +46,13 @@ function Test-PnpmWorkspaceNeedsInstall {
     }
 }
 
+function Assert-LastExitCode {
+    param([string]$Step)
+    if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        throw "$Step failed (exit code $LASTEXITCODE)"
+    }
+}
+
 Write-Host "========================================"
 Write-Host "Building Element Desktop for Windows"
 Write-Host "Architecture: $(if ($x64) { 'x64' } else { 'current' })"
@@ -85,7 +92,15 @@ Write-Host "[1/6] Checking dependencies..."
 Set-Location "$ScriptDir\element-web"
 if (Test-PnpmWorkspaceNeedsInstall -ProjectRoot "$ScriptDir\element-web") {
     Write-Host "Installing or updating element-web dependencies (pnpm monorepo)..."
-    pnpm install
+    # CI sets frozen-lockfile by default; a submodule may have package.json ahead of pnpm-lock.yaml.
+    if ($env:CI -eq "true") {
+        Write-Host "  (CI: pnpm install --no-frozen-lockfile)"
+        pnpm install --no-frozen-lockfile
+    }
+    else {
+        pnpm install
+    }
+    Assert-LastExitCode "pnpm install (element-web)"
 }
 else {
     Write-Host "element-web dependencies are up to date"
@@ -96,6 +111,7 @@ else {
 Set-Location "$ScriptDir\seshat\seshat-node"
 if (-not (Test-Path "node_modules")) {
     yarn install
+    Assert-LastExitCode "yarn install (seshat-node)"
 }
 else {
     Write-Host "seshat-node dependencies OK"
@@ -106,6 +122,7 @@ Write-Host ""
 Write-Host "[2/6] Building seshat-node with bundled-sqlcipher..."
 Set-Location "$ScriptDir\seshat\seshat-node"
 yarn run build-bundled
+Assert-LastExitCode "yarn run build-bundled (seshat-node)"
 $SESHAT_INDEX_NODE = "$ScriptDir\seshat\seshat-node\index.node"
 if (-not (Test-Path $SESHAT_INDEX_NODE)) {
     throw "seshat-node build failed: index.node not found"
@@ -119,7 +136,12 @@ Set-Location "$ScriptDir\element-web"
 
 # Build via pnpm (nx handles shared-components and other dependencies)
 pnpm --filter element-web build
-Write-Host "Built: $ScriptDir\element-web\apps\web\webapp"
+Assert-LastExitCode "pnpm --filter element-web build"
+$WebappDir = "$ScriptDir\element-web\apps\web\webapp"
+if (-not (Test-Path $WebappDir)) {
+    throw "element-web build did not produce webapp output at $WebappDir"
+}
+Write-Host "Built: $WebappDir"
 
 # 4. Package webapp as ASAR
 Write-Host ""
@@ -127,7 +149,7 @@ Write-Host "[4/6] Packaging webapp as ASAR..."
 Set-Location $DesktopDir
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "webapp"
 Remove-Item -Force -ErrorAction SilentlyContinue "webapp.asar"
-Copy-Item -Recurse "$ScriptDir\element-web\apps\web\webapp" "webapp"
+Copy-Item -Recurse $WebappDir "webapp"
 
 # Add config.json if not present
 if (-not (Test-Path "webapp\config.json")) {
@@ -142,6 +164,7 @@ if (-not (Test-Path "webapp\config.json")) {
 }
 
 npx asar pack webapp webapp.asar
+Assert-LastExitCode "npx asar pack"
 Remove-Item -Recurse -Force "webapp"
 Write-Host "Created: webapp.asar"
 
@@ -165,7 +188,9 @@ Write-Host "Installed seshat-node"
 Write-Host ""
 Write-Host "[6/6] Building Windows exe..."
 pnpm run build:ts
+Assert-LastExitCode "pnpm run build:ts (element-desktop)"
 pnpm run build:res
+Assert-LastExitCode "pnpm run build:res (element-desktop)"
 
 # Build Windows package (--x64 for 64-bit, omit for default)
 # squirrel = Element Setup.exe, msi = installer
@@ -173,6 +198,7 @@ pnpm run build:res
 $BuildArgs = @("--win", "-c.npmRebuild=false")
 if ($x64) { $BuildArgs += "--x64" }
 npx electron-builder @BuildArgs
+Assert-LastExitCode "npx electron-builder"
 
 Write-Host ""
 Write-Host "========================================"
