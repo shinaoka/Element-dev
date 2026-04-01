@@ -126,29 +126,25 @@ jobs:
 
             # Publish installers to https://github.com/shinaoka/Element-dev/releases/tag/latest-windows
             # (PRs and non-main branches keep artifacts as workflow artifacts only.)
+            # gh -f sends form strings; GitHub's git/refs PATCH requires JSON boolean force:true.
             - name: Point latest-windows tag at this commit
               if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh api --method PATCH "repos/${{ github.repository }}/git/refs/tags/latest-windows" -f sha="${{ github.sha }}" -f force=true
+                  $body = @{ sha = '${{ github.sha }}'; force = $true } | ConvertTo-Json -Compress
+                  $body | gh api --method PATCH "repos/${{ github.repository }}/git/refs/tags/latest-windows" --input -
 
-            - name: Upload binaries to latest-windows release
+            - name: Upload dist zip to latest-windows release
               if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   $dist = "element-web/apps/desktop/dist"
-                  $paths = [System.Collections.Generic.List[string]]::new()
-                  foreach ($pat in @("*.exe", "*.msi", "*.yml", "*.yaml", "*.nupkg")) {
-                      Get-ChildItem -Path $dist -Filter $pat -File -ErrorAction SilentlyContinue |
-                          ForEach-Object { $paths.Add($_.FullName) }
-                  }
-                  $releases = Join-Path $dist "RELEASES"
-                  if (Test-Path -LiteralPath $releases) {
-                      $paths.Add($releases)
-                  }
-                  if ($paths.Count -eq 0) {
-                      throw "No release files (*.exe, *.msi, *.yml, *.nupkg, RELEASES) found under $dist"
-                  }
-                  gh release upload latest-windows @($paths.ToArray()) --clobber
+                  if (-not (Test-Path -LiteralPath $dist)) { throw "Missing directory: $dist" }
+                  $items = @(Get-ChildItem -LiteralPath $dist -Force)
+                  if ($items.Count -eq 0) { throw "Directory is empty: $dist" }
+                  $zip = "element-desktop-windows-dist.zip"
+                  if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+                  Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $zip -CompressionLevel Optimal
+                  gh release upload latest-windows $zip --clobber
