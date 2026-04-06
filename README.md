@@ -21,11 +21,6 @@ git clone --recursive git@github.com:shinaoka/Element-dev.git
 
 # Or if already cloned
 git submodule update --init --recursive
-
-# Install dependencies
-cd element-web && yarn install && cd ..
-cd element-desktop && yarn install && cd ..
-cd seshat/seshat-node && yarn install && cd ../..
 ```
 
 ## Build DMG (macOS)
