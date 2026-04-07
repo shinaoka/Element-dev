@@ -5,4 +5,4 @@
 [submodule "element-web"]
 	path = element-web
 	url = git@github.com:shinaoka/element-web.git
-	branch = shinaoka/tokenizer-mode
+	branch = shinaoka/tokenizer-mode-disable-auto-update

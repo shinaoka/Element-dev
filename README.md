@@ -8,7 +8,7 @@ Development environment for building Element Desktop with custom seshat (n-gram 
 Element-dev/
 ├── build-local-dmg.sh    # Build script (macOS)
 ├── build-local-exe.ps1   # Build script (Windows)
-├── element-web/          # Submodule (shinaoka/ngram branch)
+├── element-web/          # Submodule (shinaoka/tokenizer-mode-disable-auto-update branch)
 ├── element-desktop/      # Submodule (shinaoka/ngram branch)
 └── seshat/               # Submodule (work/tokenizer-mode-switching branch)
 ```
@@ -69,6 +69,6 @@ Output: `element-desktop/dist/`
 
 | Repository | Branch |
 |------------|--------|
-| element-web | shinaoka/ngram |
+| element-web | shinaoka/tokenizer-mode-disable-auto-update |
 | element-desktop | shinaoka/ngram |
 | seshat | work/tokenizer-mode-switching |
