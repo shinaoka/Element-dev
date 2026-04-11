@@ -15,12 +15,31 @@ Element-dev/
 
 ## Setup
 
+### Install Rust
 ```bash
-# Clone with submodules
-git clone --recursive git@github.com:shinaoka/Element-dev.git
+$ curl https://sh.rustup.rs -sSf | sh -s -- -y
+$ cargo --version
+cargo 1.94.0 (85eff7c80 2026-01-15)
+```
 
-# Or if already cloned
-git submodule update --init --recursive
+### Install Node.js using `nvm` with `pnpm`
+
+```bash
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+$ \. "$HOME/.nvm/nvm.sh"
+$ nvm install 24
+$ corepack enable pnpm
+$ pnpm -v
+10.28.1
+```
+
+### Clone `Element-dev`
+
+```bash
+$ git clone git@github.com:shinaoka/Element-dev.git
+$ cd Elemnt-dev
+# Clone submodules
+$ git submodule update --init --recursive
 ```
 
 ## Build DMG (macOS)
