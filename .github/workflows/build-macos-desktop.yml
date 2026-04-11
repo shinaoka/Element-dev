@@ -91,8 +91,8 @@ jobs:
             - name: Verify DMG output
               run: |
                   set -euo pipefail
-                  dist="element-web/apps/desktop/dist"
-                  if ! find "$dist" -maxdepth 1 -name '*.dmg' -print -quit | grep -q .; then
+                  dist="element-web/apps/desktop/dist/mac-arm64/"
+                  if ! find "$dist" -maxdepth 1 -name '*.app' -print -quit | grep -q .; then
                     echo "ERROR: No DMG under $dist"
                     ls -la "$dist" || true
                     exit 1
