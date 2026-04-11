@@ -38,7 +38,6 @@ $ pnpm -v
 ```bash
 $ git clone git@github.com:shinaoka/Element-dev.git
 $ cd Elemnt-dev
-# Clone submodules
 $ git submodule update --init --recursive
 ```
 
