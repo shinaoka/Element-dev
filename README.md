@@ -55,7 +55,7 @@ rustup target add x86_64-apple-darwin
 ./build-local-dmg.sh --universal
 ```
 
-Output: `element-desktop/dist/Element-*.dmg`
+Output: `element-web/apps/desktop/dist/mac-arm64/Element.app`
 
 ## Build exe (Windows)
 
@@ -73,7 +73,7 @@ Prerequisites: [element-desktop/docs/windows-requirements.md](element-desktop/do
 .\build-local-exe.ps1 -NoClean
 ```
 
-Output: `element-desktop/dist/`  
+Output: `element-web/apps/desktop/dist`
 - `Element Setup X.X.X.exe` (Squirrel installer)  
 - `win-unpacked/Element.exe` (portable)
 
