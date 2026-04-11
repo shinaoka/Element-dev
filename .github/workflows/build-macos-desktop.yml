@@ -92,8 +92,13 @@ jobs:
               run: |
                   set -euo pipefail
                   dist="element-web/apps/desktop/dist/mac-arm64/"
-                  if ! find "$dist" -maxdepth 1 -name '*.app' -print -quit | grep -q .; then
-                    echo "ERROR: No DMG under $dist"
+                  if [ ! -d "$dist/Element.app" ]; then
+                    echo "ERROR: Expected Element.app not found under $dist (if Electron.app exists, mac packaging failed before rename)."
+                    ls -la "$dist" || true
+                    exit 1
+                  fi
+                  if ! find "$dist" -maxdepth 1 -name '*.dmg' -print -quit | grep -q .; then
+                    echo "ERROR: No .dmg under $dist"
                     ls -la "$dist" || true
                     exit 1
                   fi

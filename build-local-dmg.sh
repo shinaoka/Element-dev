@@ -197,18 +197,33 @@ pnpm run build:res
 
 ELECTRON_BUILDER_ARGS=("$ARCH" "--mac" "dmg" "-c.npmRebuild=false")
 
-# Fallback to a generated .icns file when actool cannot initialize.
-# This avoids local Xcode first-launch issues while preserving the default
-# .icon-based config when actool is healthy.
-if ! (actool --version >/dev/null 2>&1) >/dev/null 2>&1; then
-    echo "actool is unavailable, generating build/icon.icns fallback..."
+# electron-builder 26+ uses actool for .icon (asset catalog) mac icons and requires
+# actool >= 26 (Xcode 26). GitHub Actions macOS images ship older CLT actool (~16.x),
+# which fails createMacApp and leaves an unrenamed Electron.app. Fall back to .icns.
+if [ -n "${CI:-}" ]; then
+    ELECTRON_BUILDER_ARGS+=("--publish" "never")
+fi
+
+USE_ICNS_FALLBACK=false
+if ! command -v actool >/dev/null 2>&1 || ! actool --version >/dev/null 2>&1; then
+    USE_ICNS_FALLBACK=true
+else
+    ACTOOL_VER=$(actool --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    ACTOOL_MAJOR="${ACTOOL_VER%%.*}"
+    if [ "${ACTOOL_MAJOR:-0}" -lt 26 ] 2>/dev/null; then
+        USE_ICNS_FALLBACK=true
+    fi
+fi
+
+if [ "$USE_ICNS_FALLBACK" = true ]; then
+    echo "actool missing or unsupported for .icon (need >= 26, found ${ACTOOL_VER:-none}); generating build/icon.icns fallback..."
     ICON_ICNS="$(ensure_icns_icon "$DESKTOP_DIR/build")"
     ELECTRON_BUILDER_ARGS+=("-c.mac.icon=$ICON_ICNS" "-c.dmg.badgeIcon=$ICON_ICNS")
 fi
 
 # Build DMG (skip rebuild to use our local seshat-node with bundled sqlcipher)
 # Disable npm rebuild to prevent overwriting our index.node
-npx electron-builder "${ELECTRON_BUILDER_ARGS[@]}" || true  # Ignore GH_TOKEN error
+npx electron-builder "${ELECTRON_BUILDER_ARGS[@]}"
 
 echo ""
 echo "========================================"
