@@ -91,15 +91,17 @@ jobs:
             - name: Verify DMG output
               run: |
                   set -euo pipefail
-                  dist="element-web/apps/desktop/dist/mac-arm64/"
-                  if [ ! -d "$dist/Element.app" ]; then
-                    echo "ERROR: Expected Element.app not found under $dist (if Electron.app exists, mac packaging failed before rename)."
-                    ls -la "$dist" || true
+                  # .app lives under dist/mac-arm64/; DMG is emitted to dist/ (sibling), not inside mac-arm64/.
+                  app_dir="element-web/apps/desktop/dist/mac-arm64"
+                  dist_root="element-web/apps/desktop/dist"
+                  if [ ! -d "$app_dir/Element.app" ]; then
+                    echo "ERROR: Expected Element.app not found under $app_dir/ (if only Electron.app exists, packaging failed before rename)." >&2
+                    ls -la "$app_dir" || true
                     exit 1
                   fi
-                  if ! find "$dist" -maxdepth 1 -name '*.dmg' -print -quit | grep -q .; then
-                    echo "ERROR: No .dmg under $dist"
-                    ls -la "$dist" || true
+                  if ! find "$dist_root" -maxdepth 1 -name '*.dmg' -print -quit | grep -q .; then
+                    echo "ERROR: No .dmg under $dist_root (electron-builder writes DMG next to mac-*/, not inside it)." >&2
+                    ls -la "$dist_root" || true
                     exit 1
                   fi
 
