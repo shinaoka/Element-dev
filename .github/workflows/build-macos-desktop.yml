@@ -1,0 +1,136 @@
+# CI/CD for the monorepo macOS desktop build (same pipeline as build-local-dmg.sh).
+#
+# Prerequisites: Rust, Xcode CLT (sips/iconutil/actool), Node (pnpm), Python for node-gyp.
+#
+# Private git submodules: this workflow rewrites git@github.com SSH URLs to HTTPS and uses
+# GITHUB_TOKEN. If submodules are outside the token's scope, add repository secret SUBMODULES_TOKEN (PAT).
+
+name: Build macOS desktop
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [main, master, develop]
+    pull_request:
+        branches: [main, master, develop]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: write # upload-artifact + update latest-macos release assets
+    actions: write # rust-cache / setup-node pnpm cache save
+
+env:
+    # Skip code signing on CI (no Apple cert); avoids electron-builder signing failures.
+    CSC_IDENTITY_AUTO_DISCOVERY: false
+
+jobs:
+    build:
+        name: macOS (local element-web + seshat)
+        runs-on: macos-latest
+        timeout-minutes: 120
+
+        steps:
+            - name: Checkout (no submodules yet)
+              uses: actions/checkout@v4
+              with:
+                  submodules: false
+
+            - name: Init submodules (SSH URL -> HTTPS + token for private repos)
+              env:
+                  TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  git config --global url."https://github.com/".insteadOf "git@github.com:"
+                  git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+                  git submodule sync --recursive
+                  git submodule update --init --force --recursive
+
+            - name: Install Rust
+              env:
+                  CARGO_INCREMENTAL: 0
+              run: |
+                  set -euo pipefail
+                  rustup toolchain install stable --profile minimal --no-self-update
+                  rustup default stable
+
+            - name: Cache Rust (seshat workspace)
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: seshat
+                  cache-workspace-crates: "true"
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.32.1
+
+            - name: Use Node (element-web monorepo + desktop app)
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: element-web/apps/desktop/.node-version
+                  cache: pnpm
+                  cache-dependency-path: element-web/pnpm-lock.yaml
+
+            - name: Set up Python (node-gyp)
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Install element-web dependencies (CI)
+              working-directory: element-web
+              run: pnpm install --no-frozen-lockfile
+
+            - name: Build (build-local-dmg.sh)
+              run: |
+                  set -euo pipefail
+                  bash ./build-local-dmg.sh
+
+            - name: Verify DMG output
+              run: |
+                  set -euo pipefail
+                  dist="element-web/apps/desktop/dist"
+                  if ! find "$dist" -maxdepth 1 -name '*.dmg' -print -quit | grep -q .; then
+                    echo "ERROR: No DMG under $dist"
+                    ls -la "$dist" || true
+                    exit 1
+                  fi
+
+            - name: Upload installer artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: element-desktop-macos-dist
+                  path: element-web/apps/desktop/dist
+                  if-no-files-found: error
+                  retention-days: 14
+
+            - name: Point latest-macos tag at this commit
+              if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  printf '{"sha":"%s","force":true}\n' "${{ github.sha }}" | gh api --method PATCH "repos/${{ github.repository }}/git/refs/tags/latest-macos" --input -
+
+            - name: Upload dist zip to latest-macos release
+              if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  dist="element-web/apps/desktop/dist"
+                  if [ ! -d "$dist" ]; then
+                    echo "Missing directory: $dist" >&2
+                    exit 1
+                  fi
+                  items=$(find "$dist" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')
+                  if [ "${items:-0}" -eq 0 ]; then
+                    echo "Directory is empty: $dist" >&2
+                    exit 1
+                  fi
+                  zip="element-desktop-macos-dist.zip"
+                  rm -f "$zip"
+                  (cd "$dist" && zip -r "$GITHUB_WORKSPACE/$zip" .)
+                  gh release upload latest-macos "$zip" --clobber
